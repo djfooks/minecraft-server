@@ -105,7 +105,7 @@ class MinecraftJob(threading.Thread):
                 minecraft_server_process.stdin.write('list\n')
                 minecraft_server_process.stdin.flush()
                 if self.minecraft_info['any_players_joined'] or start_time + 60 * 20 < time():
-                    if self.minecraft_info['num_players'] == 0 and self.minecraft_info['server_empty_time'] + 30 < time():
+                    if self.minecraft_info['num_players'] == 0 and self.minecraft_info['server_empty_time'] + 60 * 5 < time():
                         break
 
         print 'Stopping minecraft server'

@@ -8,44 +8,62 @@ import json
 from BaseHTTPServer import BaseHTTPRequestHandler,HTTPServer
 import subprocess
 import threading
-from time import sleep
+from time import sleep, time
 import sys
 import pty
 import os
+import re
+import httplib
 
 PORT_NUMBER = 8252
+API_KEY = sys.argv[1]
 
-mount_drive = False
-minecraft_cmd = ['python', 'fake-minecraft.py']
-minecraft_dir = '.'
+#mount_drive = False
+# minecraft_cmd = ['python', 'fake-minecraft.py']
+# minecraft_dir = '.'
 
-# mount_drive = True
-# minecraft_cmd = ['sudo', '-u', 'ubuntu', './ServerStart.sh']
-# minecraft_dir = '/data/skyfactory4/'
+mount_drive = True
+minecraft_cmd = ['sudo', '-u', 'ubuntu', './ServerStart.sh']
+minecraft_dir = '/data/skyfactory4/'
 
 class MinecraftOutputJob(threading.Thread):
 
-    def __init__(self, process, stdout, output_lines):
+    def __init__(self, process, stdout, minecraft_info):
         threading.Thread.__init__(self)
         self.process = process
         self.stdout = stdout
-        self.output_lines = output_lines
+        self.minecraft_info = minecraft_info
 
     def run(self):
         print('MinecraftOutputJob Thread #%s started' % self.ident)
 
+        output_lines = self.minecraft_info['output_lines']
+
+        self.minecraft_info['server_empty_time'] = time()
+
+        any_players_joined = False
+        num_players_regex = re.compile('There are ([0-9]+)/[0-9]+ players online:')
+        num_players = 0
+
         try:
             while True:
-                # data = self.stdout.read(1).decode("utf-8")
-                # if not data:
-                #     break
-                # sys.stdout.write(data)
-                # sys.stdout.flush()
-                output = self.stdout.readline()
+                self.minecraft_info['last_output'] = time()
+                output = self.stdout.readline().strip()
                 if output:
-                    self.output_lines.append(output)
-                    if len(self.output_lines) > 100:
-                        self.output_lines.pop(0)
+                    match = num_players_regex.search(output)
+                    if match:
+                        prev_num_players = num_players
+                        num_players = int(match.group(1))
+                        self.minecraft_info['num_players'] = num_players
+                        if num_players > 0:
+                            any_players_joined = True
+                        elif prev_num_players > 0:
+                            self.minecraft_info['server_empty_time'] = time()
+
+                        self.minecraft_info['any_players_joined'] = any_players_joined
+                    output_lines.append(output)
+                    if len(output_lines) > 300:
+                        output_lines.pop(0)
         except IOError:
             pass
 
@@ -53,9 +71,9 @@ class MinecraftOutputJob(threading.Thread):
 
 class MinecraftJob(threading.Thread):
 
-    def __init__(self, output_lines):
+    def __init__(self, minecraft_info):
         threading.Thread.__init__(self)
-        self.output_lines = output_lines
+        self.minecraft_info = minecraft_info
         self.shutdown_flag = threading.Event()
 
     def run(self):
@@ -74,11 +92,21 @@ class MinecraftJob(threading.Thread):
         stdout = os.fdopen(master)
         os.close(slave)
 
-        minecraft_output_thread = MinecraftOutputJob(minecraft_server_process, stdout, self.output_lines)
+        minecraft_output_thread = MinecraftOutputJob(minecraft_server_process, stdout, self.minecraft_info)
         minecraft_output_thread.start()
+
+        last_player_check = time()
+        start_time = time()
 
         while not self.shutdown_flag.is_set():
             sleep(1)
+            if last_player_check + 5 < time() and self.minecraft_info['last_output'] + 5 < time():
+                last_player_check = time()
+                minecraft_server_process.stdin.write('list\n')
+                minecraft_server_process.stdin.flush()
+                if self.minecraft_info['any_players_joined'] or start_time + 60 * 20 < time():
+                    if self.minecraft_info['num_players'] == 0 and self.minecraft_info['server_empty_time'] + 30 < time():
+                        break
 
         print 'Stopping minecraft server'
         minecraft_server_process.stdin.write('stop\n')
@@ -86,7 +114,21 @@ class MinecraftJob(threading.Thread):
         minecraft_output_thread.join()
         print 'Minecraft server stopped'
 
+        shutdown_server()
         print('MinecraftJob Thread #%s stopped' % self.ident)
+
+def shutdown_server():
+    if mount_drive:
+        print("Unmounting volume")
+        subprocess.Popen(['umount', '/data']).wait()
+
+    print("Shutting down")
+    for i in xrange(99):
+        sleep(5)
+        con = httplib.HTTPSConnection('if39zuadqc.execute-api.eu-west-2.amazonaws.com')
+        con.set_debuglevel(1)
+        con.request('GET', '/default/stop-server', None, { 'api-key': API_KEY })
+        print(con.getresponse())
 
 def main():
     if mount_drive:
@@ -95,7 +137,7 @@ def main():
         while True:
             lsblk = subprocess.Popen(['lsblk', '/dev/xvdf', '-l', '-n'], stdout=subprocess.PIPE)
             out, outerr = lsblk.communicate()
-            if lsblk.wait() != 0:
+            if lsblk.wait() == 0:
                 break
             if '/data' in out:
                 print "Already mounted!"
@@ -111,25 +153,47 @@ def main():
                 return
             print "Drive mounted"
 
-    output_lines = []
-    minecraft_server_thread = MinecraftJob(output_lines)
+    minecraft_info = {
+        'last_output': 0,
+        'num_players': 0,
+        'server_empty_time': 0,
+        'any_players_joined': False,
+        'output_lines': []
+    }
+    minecraft_server_thread = MinecraftJob(minecraft_info)
 
     class myHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
             self.send_header('Content-type','text/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             if self.path == '/stop-server':
                 minecraft_server_thread.shutdown_flag.set()
                 if minecraft_server_thread.is_alive():
-                    self.wfile.write(json.dumps({'status': 200, 'result': 'STOPPING', 'body': 'Stopping server...'}))
+                    self.wfile.write(json.dumps({'status': 'STOPPING'}))
                 else:
-                    self.wfile.write(json.dumps({'status': 200, 'result': 'STOPPED', 'body': 'Stopped server'}))
+                    self.wfile.write(json.dumps({'status': 'STOPPED'}))
+                    shutdown_server()
+
+            elif self.path == '/status':
+                if minecraft_server_thread.is_alive():
+                    self.wfile.write(json.dumps({'status': 'RUNNING', 'minecraft': {
+                        'last_output': minecraft_info['last_output'],
+                        'num_players': minecraft_info['num_players'],
+                        'server_empty_time': minecraft_info['server_empty_time'],
+                        'any_players_joined': minecraft_info['any_players_joined']
+                    }}))
+                else:
+                    self.wfile.write(json.dumps({'status': 'STOPPED'}))
+
             elif self.path == '/output':
-                for l in output_lines:
-                    self.wfile.write(l)
+                self.wfile.write(str(minecraft_info['last_output']) + '\n')
+                for l in minecraft_info['output_lines']:
+                    self.wfile.write(l + '\n')
+
             else:
-                self.wfile.write(json.dumps({'status': 200, 'body': 'ok'}))
+                self.wfile.write('Hello world\n')
             return
 
     minecraft_server_thread.start()

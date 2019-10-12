@@ -8,4 +8,4 @@ apt install screen -y
 mkdir /data
 
 wget https://raw.githubusercontent.com/djfooks/minecraft-server/master/minecraft-http.py
-python minecraft-http.py
+python minecraft-http.py API_KEY

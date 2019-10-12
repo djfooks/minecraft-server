@@ -1,3 +1,4 @@
+#!/usr/bin/python
 import sys
 
 def main():
@@ -9,5 +10,7 @@ def main():
         print '> %s' % line
         if line == 'stop\n':
             return
+        if line == 'test\n':
+            print 'hello world'
 
 main()

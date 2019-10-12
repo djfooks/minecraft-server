@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>Minecraft Server</title>
+        <meta charset="utf-8">
+
+        <link rel="stylesheet" href="src/styles.css"></link>
+    </head>
+
+    <body>
+        Server:<br>
+        <button id="startButton"   onclick="app.startServer()">Start Server</button>
+        <button id="refreshButton" onclick="app.getStatus()">Get Status</button><br>
+        <textarea rows="20" cols="120" id="responseText"></textarea>
+
+        Minecraft:<br>
+        <button id="minecraftStatusButton" onclick="app.getMinecraftStatus()">Get Status</button>
+        <button id="minecraftOutputButton" onclick="app.getMinecraftOutput()">Get Output</button>
+        <button id="minecraftStopButton" onclick="app.stopMinecraft()">Stop</button>
+        <textarea rows="20" cols="120" id="minecraftResponseText"></textarea>
+    </body>
+
+    <script type="text/javascript" src="app.js"></script>
+</html>
+

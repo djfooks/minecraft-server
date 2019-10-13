@@ -49,6 +49,7 @@ class MinecraftOutputJob(threading.Thread):
             while True:
                 self.minecraft_info['last_output'] = time()
                 output = self.stdout.readline().strip()
+                self.minecraft_info['lines_output'] += 1
                 if output:
                     match = num_players_regex.search(output)
                     if match:
@@ -134,20 +135,24 @@ def main():
     if mount_drive:
         print "Starting up..."
         already_mounted = False
-        while True:
-            lsblk = subprocess.Popen(['lsblk', '/dev/xvdf', '-l', '-n'], stdout=subprocess.PIPE)
-            out, outerr = lsblk.communicate()
-            if lsblk.wait() == 0:
-                break
-            if '/data' in out:
-                print "Already mounted!"
-                already_mounted = True
-                break
+        found = None
+        while not found:
+            for device in ['/dev/xvdf', '/dev/nvme1n1']:
+                lsblk = subprocess.Popen(['lsblk', device, '-l', '-n'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                out, outerr = lsblk.communicate()
+                if '/data' in out or '/data' in outerr:
+                    found = device
+                    print "Already mounted!"
+                    already_mounted = True
+                    break
+                if lsblk.wait() == 0:
+                    found = device
+                    break
             print "Waiting for drive to mount..."
             sleep(1)
 
         if not already_mounted:
-            mount_result = subprocess.Popen(['mount', '/dev/xvdf', '/data']).wait()
+            mount_result = subprocess.Popen(['mount', found, '/data']).wait()
             if mount_result != 0:
                 print "Mount failed!"
                 return
@@ -155,6 +160,7 @@ def main():
 
     minecraft_info = {
         'last_output': 0,
+        'lines_output': 0,
         'num_players': 0,
         'server_empty_time': 0,
         'any_players_joined': False,
@@ -165,7 +171,7 @@ def main():
     class myHandler(BaseHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
-            self.send_header('Content-type','text/json')
+            self.send_header('Content-type','text/plain')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             if self.path == '/stop-server':
@@ -179,6 +185,7 @@ def main():
             elif self.path == '/status':
                 if minecraft_server_thread.is_alive():
                     self.wfile.write(json.dumps({'status': 'RUNNING', 'minecraft': {
+                        'lines_output': minecraft_info['lines_output'],
                         'last_output': minecraft_info['last_output'],
                         'num_players': minecraft_info['num_players'],
                         'server_empty_time': minecraft_info['server_empty_time'],

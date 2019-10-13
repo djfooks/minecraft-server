@@ -1,5 +1,6 @@
 
 var MINECRAFT_PORT = "8252";
+var MINECRAFT_LOG_LINES_LOADED = 6790;
 
 var App = function ()
 {
@@ -128,6 +129,14 @@ App.prototype.getMinecraftStatus = function ()
         {
             var data = JSON.parse(response);
             var str = JSON.stringify(data, null, 2);
+            if (data.minecraft.lines_output >= MINECRAFT_LOG_LINES_LOADED)
+            {
+                str = "Minecraft running...\n\n" + str;
+            }
+            else
+            {
+                str = "Minecraft startup " + Math.floor((data.minecraft.lines_output / MINECRAFT_LOG_LINES_LOADED) * 100) + "%\n\n" + str;
+            }
             that.minecraftResponseText.value = str;
         });
     }

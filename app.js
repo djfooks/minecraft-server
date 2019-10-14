@@ -48,7 +48,7 @@ App.prototype.clearApiKey = function ()
     window.localStorage.removeItem("api-key");
 };
 
-App.prototype.makeRequest = function (url, addApiKey, cb)
+App.prototype.makeRequest = function (url, cb)
 {
     var apiKey = this.getApiKey();
 
@@ -56,7 +56,7 @@ App.prototype.makeRequest = function (url, addApiKey, cb)
     var xhr = new XMLHttpRequest();
     function reqListener ()
     {
-        if (addApiKey)
+        try
         {
             var data = JSON.parse(xhr.response);
             if (data.error == "API_KEY_FAIL")
@@ -64,16 +64,16 @@ App.prototype.makeRequest = function (url, addApiKey, cb)
                 this.clearApiKey();
             }
         }
+        catch (e)
+        {
+        }
         cb(xhr.response);
     }
 
     xhr.onload = reqListener;
-    xhr.open("GET", url);
+    xhr.open("GET", 'https://if39zuadqc.execute-api.eu-west-2.amazonaws.com/default' + url);
     xhr.setRequestHeader("Content-Type", "text/plain");
-    if (addApiKey)
-    {
-        xhr.setRequestHeader("api-key", apiKey);
-    }
+    xhr.setRequestHeader("api-key", apiKey);
     xhr.send();
 };
 
@@ -87,7 +87,7 @@ App.prototype.startServerPoll = function ()
 {
     this.responseText.value = "Sending request...";
     var that = this;
-    this.makeRequest('https://if39zuadqc.execute-api.eu-west-2.amazonaws.com/default/start-server', true, function (response)
+    this.makeRequest('/start-server', function (response)
     {
         var data = JSON.parse(response);
         var str = JSON.stringify(data, null, 2);
@@ -109,7 +109,7 @@ App.prototype.getStatus = function ()
 {
     this.responseText.value = "Sending request...";
     var that = this;
-    this.makeRequest('https://if39zuadqc.execute-api.eu-west-2.amazonaws.com/default/test', true, function (response)
+    this.makeRequest('/test', function (response)
     {
         var data = JSON.parse(response);
         var str = JSON.stringify(data, null, 2);
@@ -125,17 +125,20 @@ App.prototype.getMinecraftStatus = function ()
     var that = this;
     if (this.instanceAddress)
     {
-        this.makeRequest('http://' + this.instanceAddress + ":" + MINECRAFT_PORT + '/status', false, function (response)
+        this.makeRequest('/msg-server?msg=status', function (response)
         {
             var data = JSON.parse(response);
             var str = JSON.stringify(data, null, 2);
-            if (data.minecraft.lines_output >= MINECRAFT_LOG_LINES_LOADED)
+            if (!data.error)
             {
-                str = "Minecraft running...\n\n" + str;
-            }
-            else
-            {
-                str = "Minecraft startup " + Math.floor((data.minecraft.lines_output / MINECRAFT_LOG_LINES_LOADED) * 100) + "%\n\n" + str;
+                if (data.minecraft.lines_output >= MINECRAFT_LOG_LINES_LOADED)
+                {
+                    str = "Minecraft running...\n\n" + str;
+                }
+                else
+                {
+                    str = "Minecraft startup " + Math.floor((data.minecraft.lines_output / MINECRAFT_LOG_LINES_LOADED) * 100) + "%\n\n" + str;
+                }
             }
             that.minecraftResponseText.value = str;
         });
@@ -148,7 +151,7 @@ App.prototype.getMinecraftOutput = function ()
     var that = this;
     if (this.instanceAddress)
     {
-        this.makeRequest('http://' + this.instanceAddress + ":" + MINECRAFT_PORT + '/output', false, function (response)
+        this.makeRequest('/msg-server?msg=output', function (response)
         {
             that.minecraftResponseText.value = response;
         });
@@ -159,7 +162,7 @@ App.prototype.stopMinecraft = function ()
 {
     this.minecraftResponseText.value = "Sending request...";
     var that = this;
-    this.makeRequest('http://' + this.instanceAddress + ":" + MINECRAFT_PORT + '/stop-server', false, function (response)
+    this.makeRequest('/msg-server?msg=stop-server', function (response)
     {
         var data = JSON.parse(response);
         var str = JSON.stringify(data, null, 2);

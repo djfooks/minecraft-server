@@ -115,7 +115,10 @@ class MinecraftJob(threading.Thread):
         minecraft_output_thread.join()
         print 'Minecraft server stopped'
 
-        shutdown_server()
+        # shutdown the server if we are stopping due to no players on minecraft
+        if not self.shutdown_flag.is_set():
+            shutdown_server()
+
         print('MinecraftJob Thread #%s stopped' % self.ident)
 
 def shutdown_server():
@@ -174,7 +177,14 @@ def main():
             self.send_header('Content-type','text/plain')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            if self.path == '/stop-server':
+            if self.path == '/stop-minecraft':
+                minecraft_server_thread.shutdown_flag.set()
+                if minecraft_server_thread.is_alive():
+                    self.wfile.write(json.dumps({'status': 'STOPPING'}))
+                else:
+                    self.wfile.write(json.dumps({'status': 'STOPPED'}))
+
+            elif self.path == '/stop-server':
                 minecraft_server_thread.shutdown_flag.set()
                 if minecraft_server_thread.is_alive():
                     self.wfile.write(json.dumps({'status': 'STOPPING'}))

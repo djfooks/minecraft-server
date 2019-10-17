@@ -201,7 +201,7 @@ def main():
             elif self.path == '/status':
                 if minecraft_server_thread.is_alive():
                     self.wfile.write(json.dumps({'minecraft': {
-                        'status': 'STOPPING' if minecraft_server_thread.shutdown_flag.set() else minecraft_info['status'],
+                        'status': minecraft_info['status'],
                         'lines_output': minecraft_info['lines_output'],
                         'last_output': minecraft_info['last_output'],
                         'num_players': minecraft_info['num_players'],

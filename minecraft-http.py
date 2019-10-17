@@ -60,7 +60,7 @@ class MinecraftOutputJob(threading.Thread):
                             any_players_joined = True
                         elif prev_num_players > 0:
                             self.minecraft_info['server_empty_time'] = time()
-
+                        self.minecraft_info['status'] = 'RUNNING'
                         self.minecraft_info['any_players_joined'] = any_players_joined
                     output_lines.append(output)
                     if len(output_lines) > 300:
@@ -115,8 +115,8 @@ class MinecraftJob(threading.Thread):
         minecraft_output_thread.join()
         print 'Minecraft server stopped'
 
-        # shutdown the server if we are stopping due to no players on minecraft
-        if not self.shutdown_flag.is_set():
+        # shutdown the server if we are stopping due to no players on minecraft or we were told to
+        if not self.shutdown_flag.is_set() or self.minecraft_info['stop_server']:
             shutdown_server()
 
         print('MinecraftJob Thread #%s stopped' % self.ident)
@@ -165,9 +165,11 @@ def main():
         'last_output': 0,
         'lines_output': 0,
         'num_players': 0,
+        'status': 'LOADING',
         'server_empty_time': 0,
         'any_players_joined': False,
-        'output_lines': []
+        'output_lines': [],
+        'stop_server': False
     }
     minecraft_server_thread = MinecraftJob(minecraft_info)
 
@@ -185,16 +187,20 @@ def main():
                     self.wfile.write(json.dumps({'status': 'STOPPED'}))
 
             elif self.path == '/stop-server':
-                minecraft_server_thread.shutdown_flag.set()
+                stopping_server = minecraft_info['stop_server']
+                minecraft_info['stop_server'] = True
                 if minecraft_server_thread.is_alive():
+                    minecraft_server_thread.shutdown_flag.set()
                     self.wfile.write(json.dumps({'status': 'STOPPING'}))
                 else:
                     self.wfile.write(json.dumps({'status': 'STOPPED'}))
-                    shutdown_server()
+                    if not stopping_server:
+                        shutdown_server()
 
             elif self.path == '/status':
                 if minecraft_server_thread.is_alive():
-                    self.wfile.write(json.dumps({'status': 'RUNNING', 'minecraft': {
+                    self.wfile.write(json.dumps({'minecraft': {
+                        'status': minecraft_info['status'],
                         'lines_output': minecraft_info['lines_output'],
                         'last_output': minecraft_info['last_output'],
                         'num_players': minecraft_info['num_players'],

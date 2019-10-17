@@ -13,7 +13,9 @@ var App = function ()
 
     this.instanceAddress = "";
 
-    this.startPollInterval = 0;
+    this.serverStartPollInterval = 0;
+    this.serverStatusPollInterval = 0;
+    this.minecraftPollInterval = 0;
 
     this.enableMinecraft(false);
     this.getStatus();
@@ -79,8 +81,15 @@ App.prototype.makeRequest = function (url, cb)
 
 App.prototype.startServer = function ()
 {
-    this.startPollInterval = window.setInterval(this.startServerPoll.bind(this), 5000);
+    if (this.serverStartPollInterval)
+    {
+        return;
+    }
+    window.clearInterval(this.serverStatusPollInterval);
+    this.serverStatusPollInterval = 0;
+
     this.startServerPoll();
+    this.serverStartPollInterval = window.setInterval(this.startServerPoll.bind(this), 7000);
 };
 
 App.prototype.startServerPoll = function ()
@@ -96,16 +105,28 @@ App.prototype.startServerPoll = function ()
         {
             that.instanceAddress = data.server.PublicIpAddress;
             that.enableMinecraft(that.instanceAddress);
-            if (that.instanceAddress && data.status == "SPOT_CREATED")
+            if (data.status == "STOPPED" || (that.instanceAddress && data.status == "SPOT_CREATED"))
             {
-                window.clearInterval(that.startPollInterval);
-                that.startPollInterval = 0;
+                window.clearInterval(that.serverStartPollInterval);
+                that.serverStartPollInterval = 0;
+
+                that.getMinecraftStatus();
             }
         }
     });
 };
 
 App.prototype.getStatus = function ()
+{
+    if (this.serverStartPollInterval || this.serverStatusPollInterval)
+    {
+        return;
+    }
+    this.serverStatusPoll();
+    this.serverStatusPollInterval = window.setInterval(this.serverStatusPoll.bind(this), 7000);
+};
+
+App.prototype.serverStatusPoll = function ()
 {
     this.responseText.value = "Sending request...";
     var that = this;
@@ -116,10 +137,15 @@ App.prototype.getStatus = function ()
         that.responseText.value = str;
         that.instanceAddress = data.server.PublicIpAddress;
         that.enableMinecraft(that.instanceAddress);
+        if (data.status == "STOPPED" || (that.instanceAddress && data.status == "SPOT_CREATED"))
+        {
+            window.clearInterval(that.serverStatusPollInterval);
+            that.serverStatusPollInterval = 0;
+        }
     });
 };
 
-App.prototype.getMinecraftStatus = function ()
+App.prototype.minecraftPoll = function ()
 {
     this.minecraftResponseText.value = "Sending request...";
     var that = this;
@@ -129,24 +155,45 @@ App.prototype.getMinecraftStatus = function ()
         {
             var data = JSON.parse(response);
             var str = JSON.stringify(data, null, 2);
-            if (!data.error)
+            if (data.minecraft)
             {
-                if (data.minecraft.lines_output >= MINECRAFT_LOG_LINES_LOADED)
+                if (data.minecraft.status == "RUNNING")
                 {
-                    str = "Minecraft running...\n\n" + str;
+                    window.clearInterval(that.minecraftPollInterval);
+                    that.minecraftPollInterval = 0;
                 }
-                else
+                else if (data.minecraft.lines_output < MINECRAFT_LOG_LINES_LOADED)
                 {
                     str = "Minecraft startup " + Math.floor((data.minecraft.lines_output / MINECRAFT_LOG_LINES_LOADED) * 100) + "%\n\n" + str;
                 }
+            }
+            else if (data.error == "NO_MINECRAFT_SERVER")
+            {
+                window.clearInterval(that.minecraftPollInterval);
+                that.minecraftPollInterval = 0;
+
+                that.getStatus();
             }
             that.minecraftResponseText.value = str;
         });
     }
 };
 
+App.prototype.getMinecraftStatus = function ()
+{
+    if (this.minecraftPollInterval)
+    {
+        return;
+    }
+    this.minecraftPoll();
+    this.minecraftPollInterval = window.setInterval(this.minecraftPoll.bind(this), 7000);
+};
+
 App.prototype.getMinecraftOutput = function ()
 {
+    window.clearInterval(this.minecraftPollInterval);
+    this.minecraftPollInterval = 0;
+
     this.minecraftResponseText.value = "Sending request...";
     var that = this;
     if (this.instanceAddress)
@@ -167,6 +214,14 @@ App.prototype.stopMinecraft = function ()
         var data = JSON.parse(response);
         var str = JSON.stringify(data, null, 2);
         that.minecraftResponseText.value = str;
+
+        window.setTimeout(function () {
+            if (!that.minecraftPollInterval)
+            {
+                that.minecraftPoll();
+            }
+            that.getStatus();
+        }, 7000);
     });
 };
 

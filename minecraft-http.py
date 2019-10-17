@@ -109,6 +109,7 @@ class MinecraftJob(threading.Thread):
                     if self.minecraft_info['num_players'] == 0 and self.minecraft_info['server_empty_time'] + 60 * 5 < time():
                         break
 
+        self.minecraft_info['status'] = 'STOPPING'
         print 'Stopping minecraft server'
         minecraft_server_process.stdin.write('stop\n')
         minecraft_server_process.wait()
@@ -200,7 +201,7 @@ def main():
             elif self.path == '/status':
                 if minecraft_server_thread.is_alive():
                     self.wfile.write(json.dumps({'minecraft': {
-                        'status': minecraft_info['status'],
+                        'status': 'STOPPING' if minecraft_server_thread.shutdown_flag.set() else minecraft_info['status'],
                         'lines_output': minecraft_info['lines_output'],
                         'last_output': minecraft_info['last_output'],
                         'num_players': minecraft_info['num_players'],

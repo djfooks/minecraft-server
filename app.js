@@ -198,7 +198,7 @@ App.prototype.minecraftPoll = function ()
                     window.clearInterval(that.minecraftPollInterval);
                     that.minecraftPollInterval = 0;
                 }
-                else if (data.minecraft.lines_output < MINECRAFT_LOG_LINES_LOADED)
+                else if (data.minecraft.status == "LOADING" && data.minecraft.lines_output < MINECRAFT_LOG_LINES_LOADED)
                 {
                     str = "Minecraft startup " + Math.floor((data.minecraft.lines_output / MINECRAFT_LOG_LINES_LOADED) * 100) + "%\n\n" + str;
                 }

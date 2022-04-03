@@ -24,7 +24,7 @@ API_KEY = sys.argv[1]
 
 mount_drive = True
 minecraft_cmd = ['sudo', '-u', 'ubuntu', 'java', '-jar', 'server.jar', 'nogui']
-minecraft_dir = '/data/vanilla/'
+minecraft_dir = '/data/minecraft/'
 
 class MinecraftOutputJob(threading.Thread):
 

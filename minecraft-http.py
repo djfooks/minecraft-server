@@ -42,7 +42,7 @@ class MinecraftOutputJob(threading.Thread):
         self.minecraft_info['server_empty_time'] = time()
 
         any_players_joined = False
-        num_players_regex = re.compile('There are ([0-9]+)/[0-9]+ players online:')
+        num_players_regex = re.compile('There are ([0-9]+) of a max of [0-9]+ players online:')
         num_players = 0
 
         try:

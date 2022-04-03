@@ -23,8 +23,8 @@ API_KEY = sys.argv[1]
 # minecraft_dir = '.'
 
 mount_drive = True
-minecraft_cmd = ['sudo', '-u', 'ubuntu', './ServerStart.sh']
-minecraft_dir = '/data/skyfactory4/'
+minecraft_cmd = ['sudo', '-u', 'ubuntu', 'java', '-jar', 'server.jar', 'nogui']
+minecraft_dir = '/data/vanilla/'
 
 class MinecraftOutputJob(threading.Thread):
 

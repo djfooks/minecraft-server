@@ -1,6 +1,6 @@
 
 var MINECRAFT_PORT = "8252";
-var MINECRAFT_LOG_LINES_LOADED = 6790;
+var MINECRAFT_LOG_LINES_LOADED = 44;
 
 var App = function ()
 {

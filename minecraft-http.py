@@ -1,9 +1,5 @@
 #!/usr/bin/python
 
-# > list
-# [21:33:54] [Server thread/INFO] [minecraft/DedicatedServer]: There are 1/20 players online:
-# [21:33:54] [Server thread/INFO] [minecraft/DedicatedServer]: username
-
 import json
 from BaseHTTPServer import BaseHTTPRequestHandler,HTTPServer
 import subprocess
@@ -17,14 +13,13 @@ import httplib
 
 PORT_NUMBER = 8252
 API_KEY = sys.argv[1]
+BUCKET_PATH = 's3://fooks-minecraft/'
 
-#mount_drive = False
 # minecraft_cmd = ['python', 'fake-minecraft.py']
 # minecraft_dir = '.'
 
-mount_drive = True
-minecraft_cmd = ['sudo', '-u', 'ubuntu', './ServerStart.sh']
-minecraft_dir = '/data/skyfactory4/'
+minecraft_cmd = ['sudo', '-u', 'ubuntu', './start.sh']
+minecraft_dir = '/home/ubuntu/data/'
 
 class MinecraftOutputJob(threading.Thread):
 
@@ -42,7 +37,7 @@ class MinecraftOutputJob(threading.Thread):
         self.minecraft_info['server_empty_time'] = time()
 
         any_players_joined = False
-        num_players_regex = re.compile('There are ([0-9]+)/[0-9]+ players online:')
+        num_players_regex = re.compile(self.minecraft_info['players_regex'])
         num_players = 0
 
         try:
@@ -70,6 +65,10 @@ class MinecraftOutputJob(threading.Thread):
 
         print('MinecraftOutputJob Thread #%s stopped' % self.ident)
 
+def DoCmd(cmdList):
+    print('Executing: "' + ' '.join(cmdList) + '"')
+    print(subprocess.Popen(cmdList, stdout=subprocess.PIPE, cwd='/home/ubuntu').stdout.read())
+
 class MinecraftJob(threading.Thread):
 
     def __init__(self, minecraft_info):
@@ -82,6 +81,34 @@ class MinecraftJob(threading.Thread):
 
         master, slave = pty.openpty()
 
+        self.minecraft_info['status'] = 'WAITING_FOR_FILENAME'
+        while self.minecraft_info['filename'] == '':
+            sleep(0.1)
+            if self.shutdown_flag.is_set() or self.minecraft_info['stop_server']:
+                return
+
+        filename = self.minecraft_info['filename']
+        file_split = filename.split('-version:')
+        current_version = 1
+        if len(file_split) == 2:
+            current_version = int(file_split[1]) + 1
+
+        self.minecraft_info['new_filename'] = file_split[0] + '-version:' + str(current_version + 1).zfill(5)
+
+        self.minecraft_info['status'] = 'DOWNLOADING_SERVER'
+        DoCmd(['sudo', '-u', 'ubuntu', 'aws', 's3', 'cp', BUCKET_PATH + filename, '.'])
+
+        self.minecraft_info['status'] = 'UNCOMPRESSING_SERVER'
+        DoCmd(['sudo', '-u', 'ubuntu', 'unzip', filename])
+
+        self.minecraft_info['status'] = 'INSTALLING_PREREQUISITES'
+        DoCmd(['data/install.sh'])
+
+        with open('/home/ubuntu/data/players_regex.txt', 'rt') as f:
+            self.minecraft_info['players_regex'] = f.read()
+
+        print('Starting minecraft server...')
+        self.minecraft_info['status'] = 'LOADING'
         minecraft_server_process = subprocess.Popen(minecraft_cmd,
                 cwd=minecraft_dir,
                 stdout=slave,
@@ -109,6 +136,12 @@ class MinecraftJob(threading.Thread):
                     if self.minecraft_info['num_players'] == 0 and self.minecraft_info['server_empty_time'] + 60 * 5 < time():
                         break
 
+        self.minecraft_info['status'] = 'COMPRESSING_SERVER'
+        DoCmd(['sudo', '-u', 'ubuntu', 'zip', '-9', '-r', self.minecraft_info['new_filename'], '/home/ubuntu/data'])
+
+        self.minecraft_info['status'] = 'UPLOADING_SERVER'
+        DoCmd(['sudo', '-u', 'ubuntu', 'aws', 's3', 'cp', self.minecraft_info['new_filename'], BUCKET_PATH])
+
         self.minecraft_info['status'] = 'STOPPING'
         print 'Stopping minecraft server'
         minecraft_server_process.stdin.write('stop\n')
@@ -132,36 +165,10 @@ def shutdown_server():
         sleep(5)
         con = httplib.HTTPSConnection('if39zuadqc.execute-api.eu-west-2.amazonaws.com')
         con.set_debuglevel(1)
-        con.request('GET', '/default/stop-server', None, { 'api-key': API_KEY })
+        con.request('GET', '/default/stop-server', None, { 'api-key': API_KEY, 'user': 'server' })
         print(con.getresponse())
 
 def main():
-    if mount_drive:
-        print "Starting up..."
-        already_mounted = False
-        found = None
-        while not found:
-            for device in ['/dev/xvdf', '/dev/nvme1n1']:
-                lsblk = subprocess.Popen(['lsblk', device, '-l', '-n'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                out, outerr = lsblk.communicate()
-                if '/data' in out or '/data' in outerr:
-                    found = device
-                    print "Already mounted!"
-                    already_mounted = True
-                    break
-                if lsblk.wait() == 0:
-                    found = device
-                    break
-            print "Waiting for drive to mount..."
-            sleep(1)
-
-        if not already_mounted:
-            mount_result = subprocess.Popen(['mount', found, '/data']).wait()
-            if mount_result != 0:
-                print "Mount failed!"
-                return
-            print "Drive mounted"
-
     minecraft_info = {
         'last_output': 0,
         'lines_output': 0,
@@ -169,6 +176,9 @@ def main():
         'status': 'LOADING',
         'server_empty_time': 0,
         'any_players_joined': False,
+        'players_regex': '',
+        'filename': '',
+        'new_filename': '',
         'output_lines': [],
         'stop_server': False
     }
@@ -180,7 +190,11 @@ def main():
             self.send_header('Content-type','text/plain')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            if self.path == '/stop-minecraft':
+            if self.path.startswith('/file?'):
+                minecraft_info['filename'] = self.path.split('?')[1]
+                self.wfile.write(json.dumps({'setFilename': minecraft_info['filename']}))
+
+            elif self.path == '/stop-minecraft':
                 minecraft_server_thread.shutdown_flag.set()
                 if minecraft_server_thread.is_alive():
                     self.wfile.write(json.dumps({'status': 'STOPPING'}))

@@ -11,6 +11,7 @@ import os
 import re
 import httplib
 
+MOUNT_DRIVE = False
 PORT_NUMBER = 8252
 API_KEY = sys.argv[1]
 BUCKET_PATH = 's3://fooks-minecraft/'
@@ -156,7 +157,7 @@ class MinecraftJob(threading.Thread):
         print('MinecraftJob Thread #%s stopped' % self.ident)
 
 def shutdown_server():
-    if mount_drive:
+    if MOUNT_DRIVE:
         print("Unmounting volume")
         subprocess.Popen(['umount', '/data']).wait()
 
@@ -169,6 +170,32 @@ def shutdown_server():
         print(con.getresponse())
 
 def main():
+    if MOUNT_DRIVE:
+        print "Starting up..."
+        already_mounted = False
+        found = None
+        while not found:
+            for device in ['/dev/xvdf', '/dev/nvme1n1']:
+                lsblk = subprocess.Popen(['lsblk', device, '-l', '-n'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                out, outerr = lsblk.communicate()
+                if '/data' in out or '/data' in outerr:
+                    found = device
+                    print "Already mounted!"
+                    already_mounted = True
+                    break
+                if lsblk.wait() == 0:
+                    found = device
+                    break
+            print "Waiting for drive to mount..."
+            sleep(1)
+
+        if not already_mounted:
+            mount_result = subprocess.Popen(['mount', found, '/data']).wait()
+            if mount_result != 0:
+                print "Mount failed!"
+                return
+            print "Drive mounted"
+
     minecraft_info = {
         'any_players_joined': False,
         'filename': '',

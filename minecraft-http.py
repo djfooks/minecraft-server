@@ -93,7 +93,7 @@ class MinecraftJob(threading.Thread):
         if len(file_split) == 2:
             current_version = int(file_split[1]) + 1
 
-        self.minecraft_info['new_filename'] = file_split[0] + '-version:' + str(current_version + 1).zfill(5)
+        self.minecraft_info['new_filename'] = file_split[0] + '-version:' + str(current_version + 1).zfill(3)
 
         self.minecraft_info['status'] = 'DOWNLOADING_SERVER'
         DoCmd(['sudo', '-u', 'ubuntu', 'aws', 's3', 'cp', BUCKET_PATH + filename, '.'])
@@ -136,18 +136,18 @@ class MinecraftJob(threading.Thread):
                     if self.minecraft_info['num_players'] == 0 and self.minecraft_info['server_empty_time'] + 60 * 5 < time():
                         break
 
-        self.minecraft_info['status'] = 'COMPRESSING_SERVER'
-        DoCmd(['sudo', '-u', 'ubuntu', 'zip', '-9', '-r', self.minecraft_info['new_filename'], '/home/ubuntu/data'])
-
-        self.minecraft_info['status'] = 'UPLOADING_SERVER'
-        DoCmd(['sudo', '-u', 'ubuntu', 'aws', 's3', 'cp', self.minecraft_info['new_filename'], BUCKET_PATH])
-
         self.minecraft_info['status'] = 'STOPPING'
         print 'Stopping minecraft server'
         minecraft_server_process.stdin.write('stop\n')
         minecraft_server_process.wait()
         minecraft_output_thread.join()
         print 'Minecraft server stopped'
+
+        self.minecraft_info['status'] = 'COMPRESSING_SERVER'
+        DoCmd(['sudo', '-u', 'ubuntu', 'zip', '-9', '-r', self.minecraft_info['new_filename'], '/home/ubuntu/data'])
+
+        self.minecraft_info['status'] = 'UPLOADING_SERVER'
+        DoCmd(['sudo', '-u', 'ubuntu', 'aws', 's3', 'cp', self.minecraft_info['new_filename'], BUCKET_PATH])
 
         # shutdown the server if we are stopping due to no players on minecraft or we were told to
         if not self.shutdown_flag.is_set() or self.minecraft_info['stop_server']:
@@ -170,16 +170,16 @@ def shutdown_server():
 
 def main():
     minecraft_info = {
+        'any_players_joined': False,
+        'filename': '',
         'last_output': 0,
         'lines_output': 0,
-        'num_players': 0,
-        'status': 'LOADING',
-        'server_empty_time': 0,
-        'any_players_joined': False,
-        'players_regex': '',
-        'filename': '',
         'new_filename': '',
+        'num_players': 0,
         'output_lines': [],
+        'players_regex': '',
+        'server_empty_time': 0,
+        'status': 'LOADING',
         'stop_server': False
     }
     minecraft_server_thread = MinecraftJob(minecraft_info)
@@ -190,25 +190,25 @@ def main():
             self.send_header('Content-type','text/plain')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            if self.path.startswith('/file?'):
+            if self.path.startswith('/loadSave?'):
                 minecraft_info['filename'] = self.path.split('?')[1]
-                self.wfile.write(json.dumps({'setFilename': minecraft_info['filename']}))
+                self.wfile.write(json.dumps({'loadingSave': minecraft_info['filename']}) + '\n')
 
             elif self.path == '/stop-minecraft':
                 minecraft_server_thread.shutdown_flag.set()
                 if minecraft_server_thread.is_alive():
-                    self.wfile.write(json.dumps({'status': 'STOPPING'}))
+                    self.wfile.write(json.dumps({'status': 'STOPPING'}) + '\n')
                 else:
-                    self.wfile.write(json.dumps({'status': 'STOPPED'}))
+                    self.wfile.write(json.dumps({'status': 'STOPPED'}) + '\n')
 
             elif self.path == '/stop-server':
                 stopping_server = minecraft_info['stop_server']
                 minecraft_info['stop_server'] = True
                 if minecraft_server_thread.is_alive():
                     minecraft_server_thread.shutdown_flag.set()
-                    self.wfile.write(json.dumps({'status': 'STOPPING'}))
+                    self.wfile.write(json.dumps({'status': 'STOPPING'}) + '\n')
                 else:
-                    self.wfile.write(json.dumps({'status': 'STOPPED'}))
+                    self.wfile.write(json.dumps({'status': 'STOPPED'}) + '\n')
                     if not stopping_server:
                         shutdown_server()
 
@@ -221,9 +221,9 @@ def main():
                         'num_players': minecraft_info['num_players'],
                         'server_empty_time': minecraft_info['server_empty_time'],
                         'any_players_joined': minecraft_info['any_players_joined']
-                    }}))
+                    }}) + '\n')
                 else:
-                    self.wfile.write(json.dumps({'status': 'STOPPED'}))
+                    self.wfile.write(json.dumps({'status': 'STOPPED'}) + '\n')
 
             elif self.path == '/output':
                 self.wfile.write(str(minecraft_info['last_output']) + '\n')
@@ -238,7 +238,8 @@ def main():
 
     try:
         server = HTTPServer(('', PORT_NUMBER), myHandler)
-        print 'Started httpserver on port ' , PORT_NUMBER
+        print 'Started httpserver on port ', PORT_NUMBER
+        print 'Waiting for /loadSave?SAVENAME request...'
         server.serve_forever()
 
     except KeyboardInterrupt:

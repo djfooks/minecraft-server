@@ -145,7 +145,7 @@ class MinecraftJob(threading.Thread):
         print 'Minecraft server stopped'
 
         self.minecraft_info['status'] = 'COMPRESSING_SERVER'
-        DoCmd(['sudo', '-u', 'ubuntu', 'zip', '-9', '-r', self.minecraft_info['new_filename'], '/home/ubuntu/data'])
+        DoCmd(['sudo', '-u', 'ubuntu', 'zip', '-9', '-r', self.minecraft_info['new_filename'], '/data'])
 
         self.minecraft_info['status'] = 'UPLOADING_SERVER'
         DoCmd(['sudo', '-u', 'ubuntu', 'aws', 's3', 'cp', self.minecraft_info['new_filename'], BUCKET_PATH])
